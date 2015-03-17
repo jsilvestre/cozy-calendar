@@ -45,6 +45,9 @@ module.exports = class ComboBox extends BaseView
         @menuOpen = true
         @$el.addClass 'expanded'
         @$el.focus().val(@value()).autocomplete 'search', ''
+        # when clicking on menu, auto selecting the input so that it
+        # can be updated when typing
+        @$el.select()
 
     setValue: (value) =>
         @$el.val value
