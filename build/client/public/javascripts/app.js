@@ -115,8 +115,29 @@
 require.register("application.coffee", function(exports, require, module) {
 module.exports = {
   listenTo: Backbone.Model.prototype.listenTo,
-  initialize: function() {
-    var CalendarsCollection, ContactCollection, EventCollection, Header, Menu, Router, SharingCollection, SocketListener, TagCollection, e, error, i, isMobile, j, locales, m1, m2, now, todayChecker;
+  initializeErrorHandler: function(window) {
+    var applicationErrorHandler, existingDefaultHandler;
+    existingDefaultHandler = window.onerror;
+    applicationErrorHandler = function(msg, url, line, col, error) {
+      var errorHandlerName;
+      this.onEventSharingError = function(error) {
+        alert([t('Event sharing failed for event'), error.event.get('description'), '(' + t(error.message) + ')'].join(' '));
+        return true;
+      };
+      errorHandlerName = 'on' + error.name;
+      if (this[errorHandlerName] && typeof this[errorHandlerName] === 'function') {
+        return this[errorHandlerName](error);
+      } else if (existingDefaultHandler && typeof existingDefaultHandler === 'function') {
+        return existingDefaultHandler(msg, url, line, col, error);
+      } else {
+        throw error;
+      }
+    };
+    return window.onerror = applicationErrorHandler;
+  },
+  initialize: function(window) {
+    var CalendarsCollection, ContactCollection, EventCollection, Header, Menu, Router, SharingCollection, SocketListener, TagCollection, e, error1, i, isMobile, j, locales, m1, m2, now, todayChecker;
+    this.initializeErrorHandler(window);
     window.app = this;
     this.timezone = window.timezone;
     delete window.timezone;
@@ -125,8 +146,8 @@ module.exports = {
     this.polyglot = new Polyglot();
     try {
       locales = require('locales/' + this.locale);
-    } catch (error) {
-      e = error;
+    } catch (error1) {
+      e = error1;
       locales = require('locales/en');
     }
     this.polyglot.extend(locales);
@@ -1143,7 +1164,7 @@ $(function() {
         return null;
       }
     };
-    return app.initialize();
+    return app.initialize(window);
   } catch (error1) {
     e = error1;
     console.error(e, e != null ? e.stack : void 0);
@@ -6247,6 +6268,87 @@ module.exports = Event = (function(superClass) {
     return '#008AF6';
   };
 
+  Event.prototype.isShared = function() {
+    var attendees, cozyAttendees;
+    attendees = this.get('attendees');
+    cozyAttendees = attendees != null ? attendees.find(function(attendee) {
+      return attendee.shareWithCozy;
+    }) : void 0;
+    return cozyAttendees != null;
+  };
+
+  Event.prototype.tryGetShareID = function(numtries, delay, callback) {
+    return this.fetch({
+      success: (function(_this) {
+        return function(model, response) {
+          var shareID, triesLeft;
+          shareID = model.get('shareID');
+          if (shareID) {
+            callback(null, shareID);
+            return;
+          }
+          triesLeft = --numtries;
+          if (numtries) {
+            return setTimeout(function() {
+              return _this.tryGetShareID(triesLeft, delay, callback);
+            }, delay);
+          } else {
+            return callback('Could not retrieve shareID, maximum number of tries exceeded', null);
+          }
+        };
+      })(this),
+      error: function(model, response) {
+        return callback(response.error || response, null);
+      }
+    });
+  };
+
+  Event.prototype.onShareIDChange = function() {
+    return this.fetchSharing((function(_this) {
+      return function(err, sharing) {
+        if (err) {
+          throw {
+            name: 'EventSharingError',
+            event: _this,
+            message: 'cannot retrieve sharing : ' + err
+          };
+        } else {
+          return sharing.getFailedTargets().forEach(function(target) {
+            throw {
+              name: 'EventSharingError',
+              event: _this,
+              message: [target.recipientUrl, ':', target.error].join(' ')
+            };
+          });
+        }
+      };
+    })(this));
+  };
+
+  Event.prototype.save = function(attributes, options) {
+    var successCallback;
+    successCallback = options != null ? options.success : void 0;
+    options.success = (function(_this) {
+      return function(model, response, options) {
+        successCallback(model, response, options);
+        if (_this.isShared() && !_this.hasSharing()) {
+          return _this.tryGetShareID(5, 2000, function(err, shareID) {
+            if (err) {
+              throw {
+                name: 'EventSharingError',
+                event: _this,
+                message: err
+              };
+            } else {
+              return _this.onShareIDChange();
+            }
+          });
+        }
+      };
+    })(this);
+    return Event.__super__.save.call(this, attributes, options);
+  };
+
   Event.prototype.hasSharing = function() {
     return this.get('shareID') != null;
   };
@@ -6864,6 +6966,13 @@ module.exports = Sharing = (function(superClass) {
     })(this));
   };
 
+  Sharing.prototype.getFailedTargets = function() {
+    var ref;
+    return (ref = this.get('targets')) != null ? ref.filter(function(target) {
+      return target.error != null;
+    }) : void 0;
+  };
+
   return Sharing;
 
 })(Backbone.Model);
@@ -7425,13 +7534,13 @@ module.exports = CalendarView = (function(superClass) {
           description: '',
           place: ''
         });
-        model.fetchEditability(function(editable) {
+        return model.fetchEditability(function(editable) {
           _this.popover = new EventPopover(_.extend(options, {
             readOnly: !editable
           }));
-          return _this.popover.render();
+          _this.popover.render();
+          return _this.listenTo(_this.popover, 'closed', _this.onPopoverClose);
         });
-        return _this.listenTo(_this.popover, 'closed', _this.onPopoverClose);
       };
     })(this);
     if (this.popover) {
@@ -9862,14 +9971,9 @@ module.exports = MainPopoverScreen = (function(superClass) {
           return _this.model.save(_this.formModel.attributes, {
             wait: true,
             success: function(model, response) {
-              var isShared;
-              app.events.add(model, {
+              return app.events.add(model, {
                 sort: false
               });
-              isShared = model.get('shareID') != null;
-              if (isShared) {
-                return _this.onSharedEventSync(model);
-              }
             },
             error: function() {
               return alert('server error occured');
@@ -9896,18 +10000,6 @@ module.exports = MainPopoverScreen = (function(superClass) {
         return saveEvent();
       }
     }
-  };
-
-  MainPopoverScreen.prototype.onSharedEventSync = function(event) {
-    return event.fetchSharing((function(_this) {
-      return function(err, sharing) {
-        err = err != null ? err : err = sharing.error;
-        if (err) {
-          console.error(err);
-          return alert('Sharing with Cozy users failed');
-        }
-      };
-    })(this));
   };
 
   MainPopoverScreen.prototype.handleError = function(error) {
