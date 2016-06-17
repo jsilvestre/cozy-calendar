@@ -1285,6 +1285,30 @@ module.exports = BaseView = (function(superClass) {
     };
   };
 
+  BaseView.prototype.disable = function() {
+    return this.$el.attr('aria-disabled', true);
+  };
+
+  BaseView.prototype.enable = function($disabler) {
+    return this.$el.removeAttr('aria-disabled');
+  };
+
+  BaseView.prototype.setInvalid = function() {
+    return this.$el.attr('aria-invalid', true);
+  };
+
+  BaseView.prototype.setValid = function() {
+    return this.$el.removeAttr('aria-invalid');
+  };
+
+  BaseView.prototype.setBusy = function() {
+    return this.$el.attr('aria-busy', true);
+  };
+
+  BaseView.prototype.setNotBusy = function() {
+    return this.$el.removeAttr('aria-busy');
+  };
+
   return BaseView;
 
 })(Backbone.View);
@@ -6261,11 +6285,10 @@ module.exports = Event = (function(superClass) {
         return function(err, sharing) {
           var isEditable;
           if (err) {
-            console.error(err);
-            return callback(false);
+            return callback(err, false);
           } else {
             isEditable = _this.get('shareID') === sharing.get('id');
-            return callback(isEditable);
+            return callback(null, isEditable);
           }
         };
       })(this));
@@ -7425,13 +7448,16 @@ module.exports = CalendarView = (function(superClass) {
           description: '',
           place: ''
         });
-        model.fetchEditability(function(editable) {
+        return model.fetchEditability(function(err, editable) {
+          if (err) {
+            console.error(err);
+          }
           _this.popover = new EventPopover(_.extend(options, {
             readOnly: !editable
           }));
-          return _this.popover.render();
+          _this.popover.render();
+          return _this.listenTo(_this.popover, 'closed', _this.onPopoverClose);
         });
-        return _this.listenTo(_this.popover, 'closed', _this.onPopoverClose);
       };
     })(this);
     if (this.popover) {
@@ -8904,27 +8930,44 @@ module.exports = PendingEventSharingsButtonItemView = (function(superClass) {
   };
 
   PendingEventSharingsButtonItemView.prototype.onAccept = function() {
+    this.disable();
+    this.setBusy();
     return this.model.accept((function(_this) {
       return function(err) {
         if (err) {
           return _this.onAnswerError(err);
+        } else {
+          return _this.onAnswerSuccess();
         }
       };
     })(this));
   };
 
   PendingEventSharingsButtonItemView.prototype.onDecline = function() {
+    this.disable();
+    this.setBusy();
     return this.model.refuse((function(_this) {
       return function(err) {
         if (err) {
           return _this.onAnswerError(err);
+        } else {
+          return _this.onAnswerSuccess();
         }
       };
     })(this));
   };
 
+  PendingEventSharingsButtonItemView.prototype.onAnswerSuccess = function() {
+    this.setValid();
+    return this.remove();
+  };
+
   PendingEventSharingsButtonItemView.prototype.onAnswerError = function(err) {
-    return console.error(err);
+    this.$errors = this.$errors != null ? this.$errors : this.$errors = this.$('.errors');
+    this.$errors.html(t('An error occurred. Please try again later.'));
+    this.setNotBusy();
+    this.setInvalid();
+    return this.enable();
   };
 
   return PendingEventSharingsButtonItemView;
@@ -10732,7 +10775,7 @@ var buf = [];
 var jade_mixins = {};
 var jade_interp;
 ;var locals_for_with = (locals || {});(function (model) {
-buf.push("<div class=\"sharer\">" + (jade.escape(null == (jade_interp = model.sharerName || model.sharerUrl) ? "" : jade_interp)) + "</div><div class=\"desc\">" + (jade.escape(null == (jade_interp = model.desc) ? "" : jade_interp)) + "</div><div class=\"actions\"><a class=\"accept\">" + (jade.escape(null == (jade_interp = t('Accept')) ? "" : jade_interp)) + "</a><span class=\"separator\">" + (jade.escape(null == (jade_interp = ' • ') ? "" : jade_interp)) + "</span><a class=\"decline\">" + (jade.escape(null == (jade_interp = t('Decline')) ? "" : jade_interp)) + "</a></div>");}.call(this,"model" in locals_for_with?locals_for_with.model:typeof model!=="undefined"?model:undefined));;return buf.join("");
+buf.push("<div class=\"sharer\">" + (jade.escape(null == (jade_interp = model.sharerName || model.sharerUrl) ? "" : jade_interp)) + "</div><div class=\"desc\">" + (jade.escape(null == (jade_interp = model.desc) ? "" : jade_interp)) + "</div><div class=\"errors\"></div><div class=\"actions\"><a class=\"accept\">" + (jade.escape(null == (jade_interp = t('Accept')) ? "" : jade_interp)) + "</a><span class=\"separator\">" + (jade.escape(null == (jade_interp = ' • ') ? "" : jade_interp)) + "</span><a class=\"decline\">" + (jade.escape(null == (jade_interp = t('Decline')) ? "" : jade_interp)) + "</a></div><div class=\"disabler\"></div><div class=\"spinner\"><img src=\"img/spinner.svg\"/></div>");}.call(this,"model" in locals_for_with?locals_for_with.model:typeof model!=="undefined"?model:undefined));;return buf.join("");
 };
 if (typeof define === 'function' && define.amd) {
   define([], function() {
