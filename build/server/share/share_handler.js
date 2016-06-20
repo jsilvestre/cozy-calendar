@@ -19,7 +19,7 @@ module.exports.sendShareInvitations = function(event, callback) {
     continuous: true
   };
   guests.forEach(function(guest) {
-    if (guest.status === 'INVITATION-NOT-SENT' && guest.shareWithCozy) {
+    if (guest.status === 'INVITATION-NOT-SENT' && guest.share) {
       data.targets.push({
         recipientUrl: guest.cozy
       });
